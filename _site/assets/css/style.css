@@ -2,7 +2,14 @@
 
 /* --- 1. 全局变量定义 --- */
 :root {
-  --primary-color: #F5673C; /* 定义一个主题色 (橙系)，用于链接和强调 */
+  --primary-color: #C46210; /* 定义一个主题色 (橙系)，用于链接和强调 */
+  
+  /* --- 新增：用于标题颜色渐变的 HSL 变量 --- */
+  --primary-hue: 26;
+  --primary-saturation: 89%;
+  --primary-lightness: 42%;
+  /* --- HSL 变量结束 --- */
+
   --text-color: #343a40;      /* 更柔和的黑色，用于正文 */
   --light-gray: #8C92AC;     /* 更明亮的浅灰色，用于背景 */
   --border-color: #dee2e6;    /* 统一的边框颜色 */
@@ -38,8 +45,8 @@ h1, h2, h3, h4, h5, h6 {
 
 h1 { font-size: 2.5rem; }  /* ~40px */
 h2 { font-size: 2.0rem; }  /* ~32px */
-h3 { font-size: 1.75rem; } /* ~28px */
-h4 { font-size: 1.5rem; }  /* ~24px */
+h3 { font-size: 1.75rem; } /* ~26px */
+h4 { font-size: 1.5rem; }  /* ~20px */
 h5 { font-size: 1.25rem; } /* ~20px */
 h6 { font-size: 1rem; }    /* ~16px */
 /* --- 标题大小设定结束 --- */
@@ -93,12 +100,12 @@ nav {
   margin-top: 10px;
 }
 nav a {
-  color: #DFFFFD; /* 修改为主题色 */
+  color: #DFFFFD; 
   opacity: 0.9; /* 可以稍微透明一点，增加层次感 */
   /* ... 其他样式 ... */
 }
 nav a:hover {
-  color: #DFFFFD
+  color: #DFFFFD;
   opacity: 1; /* 鼠标悬停时不透明 */
 }
 /* --- 导航样式结束 --- */
@@ -108,8 +115,24 @@ main {
 }
 
 /* --- 4. 文章专属样式 --- */
+
+/* --- 新增：标题颜色层级 --- */
+h1 {
+  color: hsl(var(--primary-hue), var(--primary-saturation), var(--primary-lightness));
+}
+h2 {
+  color: hsl(var(--primary-hue), var(--primary-saturation), calc(var(--primary-lightness) + 8%));
+}
+h3 {
+  color: hsl(var(--primary-hue), var(--primary-saturation), calc(var(--primary-lightness) + 16%));
+}
+h4, h5, h6 {
+  color: hsl(var(--primary-hue), var(--primary-saturation), calc(var(--primary-lightness) + 24%));
+}
+/* --- 标题颜色层级结束 --- */
+
 article h2 {
-  color: #333;
+  /* color: #333; */ /* <-- 修改点：已移除此行以应用新颜色 */
   border-bottom: 2px solid var(--primary-color); /* 为文章标题添加下划线 */
   padding-bottom: 0.3em;
   margin-top: 1.5em;
@@ -121,6 +144,21 @@ article h2 {
   display: block; /* 让日期独占一行 */
   margin-bottom: 2em; /* 增加日期和正文之间的距离 */
 }
+
+/* --- 新增：首页文章列表专属样式 --- */
+.home-post-list a {
+  color: #8C92AC; /* 设置为你想要的颜色 */
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.home-post-list a:hover {
+  color: var(--primary-color); /* 鼠标悬停时使用主题色 */
+  text-decoration: none;
+}
+/* --- 样式结束 --- */
+
+
 
 /* --- 5. 代码块样式 --- */
 pre, code {
