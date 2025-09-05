@@ -1,0 +1,319 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.4.1">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-09-05T17:05:09+08:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">我的第一个博客</title><subtitle>这里是我的个人博客，记录学习和思考的过程。</subtitle><author><name>你的名字</name></author><entry><title type="html">DDPM 变分下界的完整证明</title><link href="http://localhost:4000/ml/diffusion/2025/09/04/DDPM%E5%8F%98%E5%88%86%E4%B8%8B%E7%95%8C%E6%8E%A8%E5%AF%BC.html" rel="alternate" type="text/html" title="DDPM 变分下界的完整证明" /><published>2025-09-04T00:00:00+08:00</published><updated>2025-09-04T00:00:00+08:00</updated><id>http://localhost:4000/ml/diffusion/2025/09/04/DDPM%E5%8F%98%E5%88%86%E4%B8%8B%E7%95%8C%E6%8E%A8%E5%AF%BC</id><content type="html" xml:base="http://localhost:4000/ml/diffusion/2025/09/04/DDPM%E5%8F%98%E5%88%86%E4%B8%8B%E7%95%8C%E6%8E%A8%E5%AF%BC.html"><![CDATA[<h1 id="引言">引言</h1>
+<p>相信每一位入门diffusion model的同学都遇到过这个公式：</p>
+
+\[\mathbb{E}[-\log p_\theta(\mathbf{x}_0)] \le
+\mathbb{E}_q \left[ -\log \frac{p_\theta(\mathbf{x}_{0:T})}{q(\mathbf{x}_{1:T}\mid \mathbf{x}_0)} \right] =
+\mathbb{E}_q \left[ -\log p(\mathbf{x}_T) - \sum_{t \ge 1} \log \frac{p_\theta(\mathbf{x}_{t-1}\mid\mathbf{x}_t)}{q(\mathbf{x}_t\mid\mathbf{x}_{t-1})} \right] := L\]
+
+<p>原文中对这个公式这样解释：模型的训练，是通过最小化一个与负对数似然相关的变分下界来实现的</p>
+
+<p>接下来的内容分为三部分，首先我们初步理解这句话，什么是对数似然，什么是变分下界；第二部分我们将讲解这个公式对于diffusion model的意义；第三部分对它进行严谨的数学证明。</p>
+
+<p>现在，让我们开始吧！</p>
+
+<h1 id="理解与证明ddpm中的变分下界vlb公式第一部分">理解与证明DDPM中的变分下界(VLB)公式：第一部分</h1>
+
+<h2 id="什么是对数似然">什么是对数似然？</h2>
+
+<h3 id="核心目标最大似然估计-maximum-likelihood-estimation">核心目标：最大似然估计 (Maximum Likelihood Estimation)</h3>
+
+<p>首先一定要理解的一件事是：生成模型的目标，是在用模型生成的分布去逼近真实世界的分布，而不是去逼近真实世界中的一个点，因此我们要最小化的是两个分布之间的距离，而这就需要用到<strong>最大似然估计</strong>。</p>
+
+<p>最大似然估计是一种在给定观测数据的情况下，估计统计模型参数的经典方法。其核心思想是：寻找能使观测到的数据样本出现概率最大的那组参数。</p>
+
+<h4 id="1-问题设定">1. 问题设定</h4>
+
+<p>假设我们有一组独立同分布 (independent and identically distributed, i.i.d.) 的观测数据样本 $ \mathcal{D} = {\mathbf{x}_1, \mathbf{x}_2, \dots, \mathbf{x}_N} $ 。</p>
+
+<p>我们假定这些数据样本来自于一个固定的、但未知的真实数据分布 $p_{data}(\mathbf{x})$。</p>
+
+<p>我们的目标是使用一个由参数 $\theta$ 决定的模型分布 $p_{model}(\mathbf{x}; \theta)$ 来近似这个真实分布。$\theta$ 是一个参数（或参数向量），它定义了模型族中的一个特定模型。例如，如果模型是高斯分布，那么 $\theta = {\mu, \sigma^2}$。</p>
+
+<h4 id="2-似然函数-likelihood-function">2. 似然函数 (Likelihood Function)</h4>
+
+<p>在给定参数 $\theta$ 的情况下，我们的模型 $p_{model}(\mathbf{x}; \theta)$ 产生整个数据集 $\mathcal{D}$ 的概率是多少？由于我们假设样本是独立同分布的，这个联合概率就是每个样本概率的乘积：</p>
+
+\[P(\mathcal{D}; \theta) = \prod_{i=1}^{N} p_{model}(\mathbf{x}_i; \theta)\]
+
+<p>这个表达式 $P(\mathcal{D}; \theta)$ 被称为参数 $\theta$ 对于数据集 $\mathcal{D}$ 的<strong>似然函数</strong>，通常记作 $L(\theta \mid \mathcal{D})$ ：</p>
+
+\[L(\theta \mid \mathcal{D}) = \prod_{i=1}^{N} p_{model}(\mathbf{x}_i; \theta)\]
+
+<p><strong>关键理解</strong>：</p>
+<ul>
+  <li>当我们将 $\mathbf{x}$ 视为变量而 $\theta$ 固定时，$p_{model}(\mathbf{x}; \theta)$ 是一个概率密度（或质量）函数。</li>
+  <li>当我们将观测数据 $\mathcal{D}$ 视为固定的，而将 $\theta$ 视为变量时，这个表达式 $L(\theta \mid \mathcal{D})$ 就是一个关于参数 $\theta$ 的函数，即似然函数。它衡量的是，在不同的参数 $\theta$ 取值下，我们观测到的这组数据“有多大的可能性”会出现。</li>
+</ul>
+
+<h4 id="3-最大似然估计量">3. 最大似然估计量</h4>
+
+<p>最大似然估计的原则是，去寻找那个能使似然函数 $L(\theta \mid \mathcal{D})$ 取得最大值的参数值 $\hat{\theta}_{MLE}$。这个 $\hat{\theta}_{MLE}$ 就是我们对真实参数的最佳估计。</p>
+
+<p>数学上，我们可以表示为：</p>
+
+\[\hat{\theta}_{MLE} = \arg \max_{\theta} L(\theta \mid \mathcal{D}) = \arg \max_{\theta} \prod_{i=1}^{N} p_{model}(\mathbf{x}_i; \theta)\]
+
+<p>这里的 $\arg \max_{\theta}$ 表示寻找能使函数值最大的那个参数 $\theta$。</p>
+
+<h4 id="4-对数似然函数-log-likelihood-function">4. 对数似然函数 (Log-Likelihood Function)</h4>
+
+<p>直接对连乘形式的 $L(\theta \mid \mathcal{D})$ 进行求导和优化通常很困难，并且在深度学习中每一项都很小，连乘可能会导致数值下溢。因此，我们引入<strong>对数似然函数</strong>，记作 $\ell(\theta \mid \mathcal{D})$ 或 $\log L(\theta \mid \mathcal{D})$。</p>
+
+\[\ell(\theta \mid \mathcal{D}) = \log L(\theta \mid \mathcal{D}) = \log \prod_{i=1}^{N} p_{model}(\mathbf{x}_i; \theta) = \sum_{i=1}^{N} \log p_{model}(\mathbf{x}_i; \theta)\]
+
+<p>因此，在DDPM的公式中，我们的目标 $\mathbb{E}[-\log p_\theta(\mathbf{x}_0)]$ 就是<strong>最小化负对数似然的期望</strong>，这与最大化对数似然是完全一样的目标，也是我们训练所有深度生成模型的基石。</p>
+
+<h2 id="什么是变分下界-variational-lower-bound-vlb">什么是变分下界 (Variational Lower Bound, VLB)？</h2>
+
+<p>现在我们知道了目标是最小化 $-\log p_\theta(\mathbf{x}_0)$。但问题是，对于像DDPM这样复杂的深度生成模型，$p_\theta(\mathbf{x}_0)$ 这个概率值通常是<strong>难以直接计算 (intractable)</strong> 的。因为它涉及到对所有可能的潜在变量（在DDPM中就是 $\mathbf{x}_{1:T}$）进行积分或求和，计算量巨大到无法实现。</p>
+
+<p>怎么办呢？这就引出了<strong>变分推断 (Variational Inference)</strong> 的思想和<strong>变分下界 (Variational Lower Bound, VLB)</strong>，它也被称为<strong>证据下界 (Evidence Lower Bound, ELBO)</strong>。</p>
+
+<p>核心思想是：既然我们无法直接优化那个难求的目标（$-\log p_\theta(\mathbf{O})$），那我们就找一个它的<strong>替代品</strong>。这个替代品需要满足两个条件：</p>
+<ol>
+  <li><strong>可计算性</strong>：它必须是我们可以实际计算和优化的。</li>
+  <li><strong>紧密性</strong>：它必须与我们的原始目标紧密相关。</li>
+</ol>
+
+<p>VLB就是这样一个完美的替代品。它为我们的目标函数 $-\log p_\theta(\mathbf{x}_0)$ 提供了一个<strong>上界</strong> (Upper Bound)。也就是说，我们总能保证：</p>
+
+\[-\log p_\theta(\mathbf{x}_0) \le L_{VLB}\]
+
+<p>这里的 $L_{VLB}$ 就是我们公式右侧那一大串，它是一个我们可以计算和优化的量。</p>
+
+<p><strong>它的作用是什么？</strong></p>
+
+<p>通过最小化这个上界 $L_{VLB}$，我们就能间接地、有效地去最小化我们真正关心但又无法直接计算的负对数似然 $-\log p_\theta(\mathbf{x}_0)$。这就好比我们想降低一个够不到的天花板的高度，我们可以通过降低一个与天花板紧紧相连、我们可以够到的地板的高度来实现。我们优化的虽然是下界（或上界，取决于正负号），但最终的效果会传递到我们真正的目标上。</p>
+
+<p>因此，VLB为我们优化一个难解的概率模型提供了一座桥梁，一个切实可行的优化目标。</p>
+
+<h1 id="这个公式的意义">这个公式的意义</h1>
+
+<p>理解了对数似然和变分下界之后，我们现在的目标就是最小化公式中右边的这部分：</p>
+
+\[\mathbb{E}_q \left[ -\log \frac{p_\theta(\mathbf{x}_{0:T})}{q(\mathbf{x}_{1:T}\mid\mathbf{x}_0)} \right] = \mathbb{E}_q \left[ -\log p(\mathbf{x}_T) - \sum_{t \ge 1} \log \frac{p_\theta(\mathbf{x}_{t-1}\mid\mathbf{x}_t)}{q(\mathbf{x}_t\mid\mathbf{x}_{t-1})} \right] := L\]
+
+<p>这个等式本质上是一次“化整为零”的数学重构。它回答了这样一个问题：我们如何将一个理论上正确但无法直接计算的复杂目标，转换成一个由许多个简单、可计算、可优化的部分组成的等价目标。</p>
+
+<p>简单来说，这个等式利用概率论中的<strong>链式法则</strong>，将一个关于<strong>完整数据路径</strong>的复杂概率比，分解成了<strong>一系列单步变换</strong>的概率比之和，并定义为损失函数。</p>
+
+<ul>
+  <li><strong>等式左边</strong>: $\mathbb{E}_q \left[ -\log \frac{p_\theta(\mathbf{x}_{0:T})}{q(\mathbf{x}_{1:T}\mid\mathbf{x}_0)} \right]$
+    <ul>
+      <li>这是一个“<strong>全局</strong>”或者说“<strong>整体</strong>”的视角。它衡量的是加噪和去噪两条完整路径的概率比。</li>
+      <li>$p_\theta(\mathbf{x}_{0:T})$：这是我们模型定义的“生成路径”。它代表模型从一个纯噪声 $\mathbf{x}_T$ 出发，一步步去噪，最终生成 $\mathbf{x}_0$ 的整条路径 $(\mathbf{x}_T, \mathbf{x}_{T-1}, \dots, \mathbf{x}_0)$ 的联合概率。</li>
+      <li>$q(\mathbf{x}_{1:T}\mid\mathbf{x}_0)$：这是我们预设的“加噪路径”。它代表从一张真实图片 $\mathbf{x}_0$ 出发，一步步加噪，得到整条路径 $(\mathbf{x}_1, \mathbf{x}_2, \dots, \mathbf{x}_T)$ 的联合概率。</li>
+      <li><strong>问题</strong>：这个形式虽然紧凑，但非常不实用。因为 $p_\theta(\mathbf{x}_{0:T})$ 这样一个跨越 T 步的联合概率分布是极其复杂的，我们无法直接用神经网络对它进行建模和计算。</li>
+    </ul>
+  </li>
+  <li><strong>等式右边</strong>: $\mathbb{E}_q \left[ -\log p(\mathbf{x}_T) - \sum_{t \ge 1} \log \frac{p_\theta(\mathbf{x}_{t-1}\mid\mathbf{x}_t)}{q(\mathbf{x}_t\mid\mathbf{x}_{t-1})} \right]$
+    <ul>
+      <li>这是一个“<strong>局部</strong>”或者说“<strong>分步</strong>”的视角。它把上面的那个复杂的整体目标，拆解成了一个“起点”和 T 个“步骤”的总和。</li>
+      <li>$-\log p(\mathbf{x}_T)$: 这是“起点”的代价。它衡量了路径最末端的噪声分布。</li>
+      <li>$- \sum_{t \ge 1} \log \frac{p_\theta(\mathbf{x}_{t-1}\mid\mathbf{x}_t)}{q(\mathbf{x}_t\mid\mathbf{x}_{t-1})}$: 这是 T 个“步骤”的代价总和。每一项都只关注相邻两步之间的变换，即从 $\mathbf{x}_t$ 到 $\mathbf{x}_{t-1}$。</li>
+    </ul>
+  </li>
+</ul>
+
+<!-- ### 把什么转换成了什么？
+
+这个等式**把一个关于联合概率（整条路径）的单一目标，转换成了一个关于条件概率（单个步骤）的求和目标**。
+
+这个转换的核心是利用概率链式法则对分子和分母分别进行展开：
+
+1.  **展开分子（模型生成路径 $p_\theta$）**：
+    根据概率链式法则，$p(A,B,C) = p(A|B,C)p(B|C)p(C)$。我们的生成过程是从 $\mathbf{x}_T$ 开始反向进行的，所以可以写成：
+    $$p_\theta(\mathbf{x}_{0:T}) = p_\theta(\mathbf{x}_0, \mathbf{x}_1, \dots, \mathbf{x}_T) = p(\mathbf{x}_T) \prod_{t=1}^{T} p_\theta(\mathbf{x}_{t-1} | \mathbf{x}_t)$$
+    这个式子的含义是：整条路径的概率 = 最终噪声的先验概率 × 每一步成功去噪的条件概率的连乘。
+
+2.  **展开分母（数据加噪路径 $q$）**：
+    我们的加噪过程是从 $\mathbf{x}_0$ 开始正向进行的，同样使用链式法则：
+    $$q(\mathbf{x}_{1:T} | \mathbf{x}_0) = q(\mathbf{x}_1, \dots, \mathbf{x}_T | \mathbf{x}_0) = \prod_{t=1}^{T} q(\mathbf{x}_t | \mathbf{x}_{t-1})$$
+    这个式子的含义是：整条加噪路径的概率 = 每一步成功加噪的条件概率的连乘。
+
+3.  **代入并化简**：
+    现在，我们把展开后的式子代入到原来的分数中：
+    $$\frac{p_\theta(\mathbf{x}_{0:T})}{q(\mathbf{x}_{1:T}|\mathbf{x}_0)} = \frac{p(\mathbf{x}_T) \prod_{t=1}^{T} p_\theta(\mathbf{x}_{t-1} | \mathbf{x}_t)}{\prod_{t=1}^{T} q(\mathbf{x}_t | \mathbf{x}_{t-1})} = p(\mathbf{x}_T) \prod_{t=1}^{T} \frac{p_\theta(\mathbf{x}_{t-1} | \mathbf{x}_t)}{q(\mathbf{x}_t | \mathbf{x}_{t-1})}$$
+    再对整个式子取对数，利用 $\log(a \cdot b) = \log a + \log b$ 的性质，连乘（$\prod$）就变成了连加（$\sum$）：
+    $$\log \frac{p_\theta(\mathbf{x}_{0:T})}{q(\mathbf{x}_{1:T}|\mathbf{x}_0)} = \log p(\mathbf{x}_T) + \sum_{t=1}^{T} \log \frac{p_\theta(\mathbf{x}_{t-1} | \mathbf{x}_t)}{q(\mathbf{x}_t | \mathbf{x}_{t-1})}$$
+    最后在前面加上负号，就得到了我们最终的表达式。 -->
+
+<!-- ### 为什么要做这个转换？
+
+**为了将一个无法完成的宏大任务，分解为一系列可以完成的简单子任务。**
+
+1.  **可计算性 (Computable)**：
+    转换后的形式是可计算的。在右边的式子中，每一项都只涉及一步的变换：
+    * $p(\mathbf{x}_T)$：我们预先定义好的标准正态分布，可计算。
+    * $q(\mathbf{x}_t|\mathbf{x}_{t-1})$：我们预先定义好的加噪过程，是一个固定的高斯分布，可计算。
+    * $p_\theta(\mathbf{x}_{t-1}|\mathbf{x}_t)$：这是我们神经网络在单步去噪中的输出，是我们**唯一需要学习的部分**。我们的网络在任意时刻 $t$ 接收 $\mathbf{x}_t$，并预测出去噪后的 $\mathbf{x}_{t-1}$ 的分布。
+
+2.  **可优化性 (Optimizable)**：
+    这个分解极大地简化了模型的学习目标。它告诉我们，最大化数据似然这个宏大目标，等价于**在每个时间步 $t$ 上，让我们的神经网络（$p_\theta$）去模仿真实的逆过程（在后续证明中会看到它与 $q(\mathbf{x}_{t-1}|\mathbf{x}_t, \mathbf{x}_0)$ 相关）**。
+    损失函数 $L$ 被分解成了 T 个子损失之和（忽略常数项）。在训练时，我们可以随机采样一个时间步 $t$ 和一个数据点 $\mathbf{x}_0$，然后只计算和优化对应于该时间步 $t$ 的那个损失项。这使得训练过程非常高效和稳定。 -->
+
+<h3 id="总结">总结：</h3>
+<p>总而言之，第一、二部分的解读帮助我们理解了：</p>
+<ul>
+  <li><strong>我们的最终目标</strong>：最大化数据的对数似然，即最小化负对数似然 $\mathbb{E}[-\log p_\theta(\mathbf{x}_0)]$。</li>
+  <li><strong>我们采用的方法</strong>：由于最终目标难以直接优化，我们通过优化它的一个可计算的代理——变分下界 $L$。</li>
+  <li><strong>代理的具体内容</strong>：这个下界 $L$ 由一个先验项和一系列代表逐步去噪过程的项构成，而这些项的核心是让模型学习到的反向去噪过程 $p_\theta$ 去匹配固定的前向加噪过程 $q$。</li>
+</ul>
+
+<h1 id="第三部分对公式进行严谨的数学证明">第三部分：对公式进行严谨的数学证明</h1>
+
+<p>我们要证明的第一个不等式是：
+\(\mathbb{E}[-\log p_\theta(\mathbf{x}0)] \le \mathbb{E}q \left[ -\log \frac{p\theta(\mathbf{x}{0:T})}{q(\mathbf{x}_{1:T}\mid\mathbf{x}_0)} \right]\)</p>
+
+<p>这个证明分为两个主要部分：首先是单个数据点的变分下界推导，然后是泛化到整个数据集，并解释期望的合并。</p>
+
+<h2 id="1-从单个数据点的似然到其下界">1. 从单个数据点的似然到其下界</h2>
+
+<p>我们首先从单个数据点 $\mathbf{x}0$ 的对数似然 $\log p\theta(\mathbf{x}_0)$ 开始，证明它存在一个下界。</p>
+
+<p>引入辅助分布
+我们引入一个辅助的概率分布 $q(\mathbf{x}_{1:T}\mid\mathbf{x}_0)$。这个分布代表了DDPM中的前向加噪过程，它将数据逐步转化为纯噪声，并作为我们推导的桥梁。</p>
+
+<p>利用期望的定义
+我们知道，任何概率分布的积分都可以写成期望的形式。因此，我们巧妙地将 $\log p_\theta(\mathbf{x}0)$ 表达式内部乘以一个“1”，即 $\frac{q(\mathbf{x}{1:T}\mid\mathbf{x}0)}{q(\mathbf{x}{1:T}\mid\mathbf{x}0)}$：</p>
+
+\[\log p\theta(\mathbf{x}0) = \log \int p\theta(\mathbf{x}{0:T}) , d\mathbf{x}{1:T}
+= \log \int q(\mathbf{x}{1:T}\mid\mathbf{x}0) \frac{p\theta(\mathbf{x}{0:T})}{q(\mathbf{x}{1:T}\mid\mathbf{x}0)} , d\mathbf{x}{1:T}\]
+
+<p>根据期望的定义 $\mathbb{E}[f(x)] = \int f(x)p(x)dx$，上面的积分可以写成期望的形式：</p>
+
+\[= \log \mathbb{E}{q(\mathbf{x}{1:T}\mid\mathbf{x}0)} \left[ \frac{p\theta(\mathbf{x}{0:T})}{q(\mathbf{x}_{1:T}\mid\mathbf{x}_0)} \right]\]
+
+<p>应用Jason不等式
+对于 凹函数 $\log(x)$，Jason不等式告诉我们 $\mathbb{E}[\log X] \le \log \mathbb{E}[X]$。将这个不等式应用到我们前面的表达式中，我们得到了一个下界：</p>
+
+\[\log p_\theta(\mathbf{x}0) \ge \mathbb{E}q \left[ \log \frac{p\theta(\mathbf{x}{0:T})}{q(\mathbf{x}_{1:T}\mid\mathbf{x}_0)} \right]\]
+
+<p>对整个不等式取负
+在机器学习中，我们通常将最大化似然问题转化为最小化负对数似然问题。因此，我们对不等式两边都取负，不等号方向反转：</p>
+
+\[-\log p_\theta(\mathbf{x}0) \le \mathbb{E}q \left[ -\log \frac{p\theta(\mathbf{x}{0:T})}{q(\mathbf{x}_{1:T}\mid\mathbf{x}_0)} \right]\]
+
+<p>至此，我们完成了单个数据点变分下界的证明。</p>
+
+<h2 id="2-对不等式两边都取期望">2. 对不等式两边都取期望</h2>
+
+<p>在机器学习中，我们的目标是让模型拟合整个真实数据分布 $p_{data}(\mathbf{x}0)$，而不是某个特定的数据点。这在数学上等价于最大化整个数据集的平均对数似然，也就是对 $\log p\theta(\mathbf{x}_0)$ 取关于数据分布的期望。</p>
+
+<p>因此，我们对上面证明的整个不等式，再取一个期望 $\mathbb{E}{p{data}(\mathbf{x}0)}$：</p>
+
+\[\mathbb{E}{p_{data}} [-\log p\theta(\mathbf{x}0)]
+\le \mathbb{E}{p_{data}} \left[ \mathbb{E}{q(\mathbf{x}{1:T}\mid\mathbf{x}0)} \left[ -\log \frac{p\theta(\mathbf{x}{0:T})}{q(\mathbf{x}_{1:T}\mid\mathbf{x}_0)} \right] \right]\]
+
+<p>不等式右边两个期望合并以后即得到：
+\(\mathbb{E}[-\log p_\theta(\mathbf{x}0)] \le \mathbb{E}q \left[ -\log \frac{p\theta(\mathbf{x}{0:T})}{q(\mathbf{x}_{1:T}\mid\mathbf{x}_0)} \right]\)</p>
+
+<h2 id="3-为什么嵌套的期望可以合并">3. 为什么嵌套的期望可以合并？</h2>
+
+<p>在概率论中，如果我们要对一个随机变量的函数 $f(X,Y)$ 求期望，并且 $X$ 和 $Y$ 都是随机变量，我们可以按照<strong>全期望定律（Law of Total Expectation）</strong>来计算。</p>
+
+<hr />
+
+<h3 id="全期望定律">全期望定律</h3>
+
+<p>全期望定律的公式是：</p>
+
+\[\mathbb{E}[Y] = \mathbb{E}_X[\mathbb{E}_{Y \mid X}[Y]]\]
+
+<p>这意味着一个随机变量 $Y$ 的无条件期望等于 $Y$ 在给定 $X$ 条件下的期望的期望。换句话说，我们可以先对 $Y$ 在给定 $X$ 的条件下求期望，然后再对这个结果在 $X$ 的分布下求期望。</p>
+
+<hr />
+
+<h3 id="证明合并的合理性">证明合并的合理性</h3>
+
+<p>现在，我们将这个定律应用到公式上。</p>
+
+<p>我们想证明：</p>
+
+\[\mathbb{E}_{q(\mathbf{x}_{0:T})}[f(\mathbf{x}_{0:T})] = \mathbb{E}_{p_{data}(\mathbf{x}_0)}[\mathbb{E}_{q(\mathbf{x}_{1:T}\mid\mathbf{x}_0)}[f(\mathbf{x}_{0:T})]]\]
+
+<p>其中，我们把被期望的项看作一个关于 $\mathbf{x}<em>{0:T}$ 的函数 $f(\mathbf{x}</em>{0:T})$。</p>
+
+<p><strong>第一步：根据期望的定义，展开右侧。</strong>
+右侧是嵌套期望：</p>
+
+\[\mathbb{E}_{p_{data}(\mathbf{x}_0)}[\mathbb{E}_{q(\mathbf{x}_{1:T}\mid\mathbf{x}_0)}[f(\mathbf{x}_{0:T})]]\]
+
+<p>根据期望的定义，内层期望可以写成积分形式：</p>
+
+\[\mathbb{E}_{q(\mathbf{x}_{1:T}\mid\mathbf{x}_0)}[f(\mathbf{x}_{0:T})] = \int f(\mathbf{x}_{0:T})q(\mathbf{x}_{1:T}\mid\mathbf{x}_0)d\mathbf{x}_{1:T}\]
+
+<p>请注意，这里积分的变量是 $\mathbf{x}_{1:T}$，而 $\mathbf{x}_0$ 在这个积分里被视为一个固定的值。</p>
+
+<p>现在，我们把这个结果代入外层期望，外层期望是对 $\mathbf{x}<em>0$ 求的，其分布是 $p</em>{data}(\mathbf{x}_0)$：</p>
+
+\[\mathbb{E}_{p_{data}(\mathbf{x}_0)}[\dots] = \int(\int f(\mathbf{x}_{0:T})q(\mathbf{x}_{1:T}\mid\mathbf{x}_0)d\mathbf{x}_{1:T})p_{data}(\mathbf{x}_0)d\mathbf{x}_0\]
+
+<p><strong>第二步：利用概率的乘法法则和积分交换律。</strong>
+根据概率的乘法法则，联合概率分布 $q(\mathbf{x}_{0:T})$ 可以分解为边缘分布和条件分布的乘积：</p>
+
+\[q(\mathbf{x}\_{0:T}) = q(\mathbf{x}\_{1:T}, \mathbf{x}\_0) = q(\mathbf{x}\_{1:T}\mid\mathbf{x}\_0)p\_{data}(\mathbf{x}\_0)\]
+
+<p>注意，这里的 $q$ 实际上是前向过程的联合分布，它的 $\mathbf{x}_0$ 部分就是数据分布 $p_{data}$，即$p_{data}(\mathbf{x}_0)=q_{data}(\mathbf{x}_0)$。</p>
+
+<p>现在，我们将这个联合分布代入上面的嵌套积分：</p>
+
+\[\int\int f(\mathbf{x}_{0:T})[q(\mathbf{x}_{1:T}\mid\mathbf{x}_0)p_{data}(\mathbf{x}_0)]d\mathbf{x}_{1:T}d\mathbf{x}_0\]
+
+\[= \int\int f(\mathbf{x}_{0:T})q(\mathbf{x}_{0:T})d\mathbf{x}_{1:T}d\mathbf{x}_0\]
+
+<p>由于这是对所有 $\mathbf{x}_{0:T}$ 的多元积分，我们可以将两个积分符号合二为一：</p>
+
+\[= \int f(\mathbf{x}_{0:T})q(\mathbf{x}_{0:T})d\mathbf{x}_{0:T}\]
+
+<p><strong>第三步：回到期望的定义。</strong>
+最后一个表达式 $\int f(\mathbf{x}_{0:T})q(\mathbf{x}_{0:T})d\mathbf{x}_{0:T}$ 正好是函数 $f(\mathbf{x}_{0:T})$ 在联合分布 $q(\mathbf{x}_{0:T})$ 下的期望的定义:</p>
+
+\[= \mathbb{E}\_{q(\mathbf{x}\_{0:T})}[f(\mathbf{x}\_{0:T})]\]
+
+<p>因此，我们证明了：</p>
+
+\[\mathbb{E}_{p_{data}(\mathbf{x}_0)}[\mathbb{E}_{q(\mathbf{x}_{1:T}\mid\mathbf{x}_0)}[\dots]] = \mathbb{E}_{q(\mathbf{x}_{0:T})}[\dots]\]
+
+<p>这就是为什么我们可以把两层期望合并成一个的原因。</p>
+
+<p>在DDPM的语境下，这个合并非常方便。它让我们把训练目标从一个复杂的嵌套期望简化成一个单层期望。这个单层期望的采样过程也更直观：我们先从真实数据中采样一个 $\mathbf{x}_0$，然后通过前向过程 $q$ 逐步生成 $\mathbf{x}_1,\dots,\mathbf{x}_T$，得到一条完整的轨迹 $\mathbf{x}_{0:T}$，最后计算这条轨迹上的损失函数。</p>]]></content><author><name>你的名字</name></author><category term="ML" /><category term="Diffusion" /><summary type="html"><![CDATA[引言 相信每一位入门diffusion model的同学都遇到过这个公式：]]></summary></entry><entry><title type="html">My First Diffusion Post</title><link href="http://localhost:4000/2025/09/04/my-first-diffusion-post.html" rel="alternate" type="text/html" title="My First Diffusion Post" /><published>2025-09-04T00:00:00+08:00</published><updated>2025-09-04T00:00:00+08:00</updated><id>http://localhost:4000/2025/09/04/my-first-diffusion-post</id><content type="html" xml:base="http://localhost:4000/2025/09/04/my-first-diffusion-post.html"><![CDATA[<p>layout: post
+title: “我的第一篇博客：揭开Diffusion模型的神秘面纱”
+date: 2025-09-03 14:36:00 -0700
+categories:</p>
+
+<p>理论基础</p>
+
+<p>学习笔记
+tags:</p>
+
+<p>Diffusion</p>
+
+<p>AI图像生成</p>
+
+<p>学习历程</p>
+
+<p>大家好！欢迎来到我的博客
+这是我的第一篇文章，旨在分享我对Diffusion模型的初步理解。我的目标是记录下我学习过程中的每一个“Aha!”时刻，希望也能为同样在探索这个领域的你提供一些帮助。</p>
+
+<p>什么是Diffusion模型？
+简单来说，Diffusion模型是一种强大的生成模型，它通过一个“去噪”的过程来生成高质量的图像。你可以把它想象成一个艺术家，从一团模糊的“噪音”开始，一步步清晰化，最终创造出栩栩如生的画面。</p>
+
+<p>这个过程分为两个部分：</p>
+
+<p>正向过程（Forward Process）：我们逐步向一张清晰的图片中添加噪音，直到它变成一团纯粹的、无序的噪音。</p>
+
+<p>反向过程（Reverse Process）：模型学习如何逆转这个过程，从噪音开始，逐步移除噪音，最终重建出清晰的图片。</p>
+
+<p>最让我感到惊奇的是，模型并不是直接去噪，而是学习预测每一步添加的噪音。这听起来有点反直觉，但正是这种巧妙的设计，让模型能够生成非常逼真和多样化的图像。</p>
+
+<p>我未来的学习方向
+在接下来的日子里，我计划深入探索以下几个主题：</p>
+
+<p>DDPM（Denoising Diffusion Probabilistic Models）：这是Diffusion模型的基础，我会尝试用代码实现一个简单的版本。</p>
+
+<p>ControlNet：如何精确控制Diffusion模型生成的图像，比如控制人物的姿势、线条和颜色。</p>
+
+<p>项目实战：尝试使用Stable Diffusion等模型，创作一些我自己的AI艺术作品。</p>
+
+<p>希望我的分享对你有所启发。如果你有任何问题或建议，欢迎在评论区留言！</p>]]></content><author><name>你的名字</name></author><summary type="html"><![CDATA[layout: post title: “我的第一篇博客：揭开Diffusion模型的神秘面纱” date: 2025-09-03 14:36:00 -0700 categories:]]></summary></entry></feed>

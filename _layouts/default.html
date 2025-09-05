@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ page.title }} | {{ site.title }}</title>
+  
+  <link rel="stylesheet" href="{{ "/assets/css/style.css" | relative_url }}">
+  <link rel="stylesheet" href="{{ "/assets/css/syntax.css" | relative_url }}">
+
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['$', '$'], ['\\(', '\\)']],
+        displayMath: [['$$', '$$'], ['\\[', '\\]']]
+      },
+      svg: {
+        fontCache: 'global'
+      }
+    };
+  </script>
+  <script type="text/javascript" id="MathJax-script" async
+    src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js">
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC&display=swap" rel="stylesheet">
+
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1><a href="{{ "/" | relative_url }}">{{ site.title }}</a></h1>
+      <nav>
+      {% for p in site.header_pages %}
+        {% assign page = site.pages | where: "name", p | first %}
+        <a href="{{ page.url | relative_url }}">{{ page.title }}</a>
+      {% endfor %}
+      </nav>
+      <p>{{ site.description }}</p>
+    </div>
+  </header>
+  <main>
+    <div class="container">
+      {{ content }}
+    </div>
+  </main>
+  <footer>
+    <div class="container">
+      <p>&copy; {{ "now" | date: "%Y" }} {{ site.author }}.</p>
+    </div>
+  </footer>
+</body>
+</html>

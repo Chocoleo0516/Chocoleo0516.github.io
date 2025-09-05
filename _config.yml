@@ -1,0 +1,22 @@
+# _config.yml
+
+title: 我的第一个博客 # 博客标题
+author: 你的名字 # 你的名字
+description: >- # 博客描述，会显示在搜索引擎结果中
+  这里是我的个人博客，记录学习和思考的过程。
+url: "" # 如果你之后部署到网上，这里填写你的网址，例如 "https://username.github.io"
+baseurl: "" # 如果你的博客在网站的子目录中，这里填写子目录名
+
+# Build settings
+theme: minima # Jekyll 默认主题，我们这里用自定义的，但保留此项以防万一
+plugins:
+  - jekyll-feed
+
+# 极简主题的自定义变量
+header_pages:
+  - index.md
+  - about.md
+
+markdown: kramdown
+
+pygments: true
