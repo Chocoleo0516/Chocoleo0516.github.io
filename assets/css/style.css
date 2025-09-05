@@ -100,7 +100,7 @@ nav {
   margin-top: 10px;
 }
 nav a {
-  color: #DFFFFD; /* 修改为主题色 */
+  color: #DFFFFD; 
   opacity: 0.9; /* 可以稍微透明一点，增加层次感 */
   /* ... 其他样式 ... */
 }
@@ -144,6 +144,21 @@ article h2 {
   display: block; /* 让日期独占一行 */
   margin-bottom: 2em; /* 增加日期和正文之间的距离 */
 }
+
+/* --- 新增：首页文章列表专属样式 --- */
+.home-post-list a {
+  color: #8C92AC; /* 设置为你想要的颜色 */
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.home-post-list a:hover {
+  color: var(--primary-color); /* 鼠标悬停时使用主题色 */
+  text-decoration: none;
+}
+/* --- 样式结束 --- */
+
+
 
 /* --- 5. 代码块样式 --- */
 pre, code {
