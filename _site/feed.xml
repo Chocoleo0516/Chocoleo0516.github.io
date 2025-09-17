@@ -1,4 +1,443 @@
-<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.4.1">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-09-05T20:37:49+08:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">我的第一个博客</title><subtitle>这里是我的个人博客，记录学习和思考的过程。</subtitle><author><name>你的名字</name></author><entry><title type="html">DDPM 变分下界的完整证明</title><link href="http://localhost:4000/ml/diffusion/2025/09/04/DDPM%E5%8F%98%E5%88%86%E4%B8%8B%E7%95%8C%E6%8E%A8%E5%AF%BC.html" rel="alternate" type="text/html" title="DDPM 变分下界的完整证明" /><published>2025-09-04T00:00:00+08:00</published><updated>2025-09-04T00:00:00+08:00</updated><id>http://localhost:4000/ml/diffusion/2025/09/04/DDPM%E5%8F%98%E5%88%86%E4%B8%8B%E7%95%8C%E6%8E%A8%E5%AF%BC</id><content type="html" xml:base="http://localhost:4000/ml/diffusion/2025/09/04/DDPM%E5%8F%98%E5%88%86%E4%B8%8B%E7%95%8C%E6%8E%A8%E5%AF%BC.html"><![CDATA[<h1 id="引言">引言</h1>
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="4.4.1">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2025-09-17T15:26:01+08:00</updated><id>http://localhost:4000/feed.xml</id><title type="html">Chocoleo的博客</title><subtitle>这里是我的个人博客，记录学习和思考的过程。</subtitle><author><name>Chocoleo</name></author><entry><title type="html">DDPM 逆向过程的原理与数学推导</title><link href="http://localhost:4000/ai/diffusion%20models/2025/09/16/%E9%80%86%E5%90%91%E8%BF%87%E7%A8%8B.html" rel="alternate" type="text/html" title="DDPM 逆向过程的原理与数学推导" /><published>2025-09-16T17:27:00+08:00</published><updated>2025-09-16T17:27:00+08:00</updated><id>http://localhost:4000/ai/diffusion%20models/2025/09/16/%E9%80%86%E5%90%91%E8%BF%87%E7%A8%8B</id><content type="html" xml:base="http://localhost:4000/ai/diffusion%20models/2025/09/16/%E9%80%86%E5%90%91%E8%BF%87%E7%A8%8B.html"><![CDATA[<h3 id="引言">引言</h3>
+<p>逆向过程是 DDPM 模型能够生成新数据的关键所在。如果说前向过程（Forward Process）是不断对图片添加噪声，将其“破坏”成纯粹高斯噪声的过程，那么逆向过程就是一个“去噪”和“修复”的过程，它从一个完全随机的噪声图像出发，一步步地去除噪声，最终还原出一张清晰、真实的图片。</p>
+
+<p>而你是否在初步了解了扩散模型的原理之后有过这样的疑惑：我们知道神经网络智能学习到参数的值，那么模型究竟学到了什么让它能够给图像去除噪声的，逆向过程实际上是在做什么？而DDPM这篇论文的核心贡献之一，就是证明了这个看似困难的逆向过程可以被一个参数化的神经网络模型（通常是 U-Net 结构）有效学习。看了本篇文章你将彻底理解逆向过程。</p>
+
+<h2 id="1-逆向过程的目标-the-goal-of-the-reverse-process">1. 逆向过程的目标 (The Goal of the Reverse Process)</h2>
+
+<p>在前向过程中，我们有一个固定的过程，将数据 $x_0$ 经过 $T$ 步转化为噪声 $x_t$。这个过程的每一步都是一个高斯分布：
+\(q(x_t  \mid  x_{t-1}) = \mathcal{N}(x_t; \sqrt{1 - \beta_t} x_{t-1}, \beta_t \mathbf{I})\)
+其中 $\beta_t$ 是预先设定的、很小的常数。</p>
+
+<p>逆向过程的目标是学习相反的分布 $ p(x_{t-1} \mid x_t) $，即在已知第 $t$ 步的噪声图像 $x_t$ 的情况下，如何推断出上一步稍微干净一点的图像 $x_{t-1}$。如果我们能学到这个分布，就可以从一个纯粹的高斯噪声 $x_t \sim \mathcal{N}(0, \mathbf{I})$ 开始，反复采样，一步步“倒推”回来，最终得到 $x_0$，即一张生成的图像：</p>
+
+\[x_t \xrightarrow{\text{sample } p(x_{T-1} \mid x_t)} x_{T-1} \xrightarrow{\text{sample } p(x_{T-2} \mid x_{T-1})} \dots \xrightarrow{\text{sample } p(x_0 \mid x_1)} x_0\]
+
+<h2 id="2-用神经网络近似逆向过程后验分布">2. 用神经网络近似逆向过程后验分布</h2>
+
+<p>直接对真实的逆向分布 $p(x_{t-1} \mid x_t)$ 进行建模是极其困难的，因为它是一个依赖于整个复杂数据集的、未知的分布。这构成了我们生成模型的<strong>最终目标</strong>：创建一个神经网络模型 $p_\theta(x_{t-1} \mid x_t)$，让它能尽可能地接近这个真实的 $p(x_{t-1} \mid x_t)$。</p>
+
+<h3 id="21-为什么要近似">2.1 为什么要近似</h3>
+<p>那么，我们该如何指导 $p_\theta$ 的训练呢？DDPM论文为此提出了一套巧妙的<strong>训练策略</strong>。该策略的核心是引入一个虽然我们无法在生成时使用、但在训练时可以精确计算的<strong>“教师”分布</strong>——逆向过程的后验分布 $q(x_{t-1}  \mid  x_t, x_0)$。</p>
+
+<p>论文首先在数学上严格证明：在给定原始图像 $x_0$ 的条件下，这个后验分布 $q(x_{t-1}  \mid  x_t, x_0)$ 是一个形式已知的高斯分布，其均值和方差可以被精确计算：（这一证明过程在本文附录中给出）
+\(q(x_{t-1}  \mid  x_t, x_0) = \mathcal{N}(x_{t-1}; \tilde{\mu}_t(x_t, x_0), \tilde{\beta}_t \mathbf{I})\)</p>
+
+<p>其中：</p>
+
+<ul>
+  <li><strong>均值 $\tilde{\mu}_t(x_t, x_0)$</strong> 的表达式为：
+  \(\tilde{\mu}_t(x_t, x_0) = \frac{\sqrt{\bar{\alpha}_{t-1}}\beta_t}{1 - \bar{\alpha}_t}x_0 + \frac{\sqrt{\alpha_t}(1 - \bar{\alpha}_{t-1})}{1 - \bar{\alpha}_t}x_t\)</li>
+  <li><strong>方差 $\tilde{\beta}_t$</strong> 的表达式为：
+  \(\tilde{\beta}_t = \frac{1 - \bar{\alpha}_{t-1}}{1 - \bar{\alpha}_t}\beta_t\)</li>
+</ul>
+
+<p>这里的 $\alpha_t = 1 - \beta_t$ 并且 $\bar{\alpha}_t = \prod_{i=1}^t \alpha_i$。</p>
+
+<p>这个可计算的 $q$ 分布，为我们提供了一个完美的、逐点的训练目标。因此，我们的训练策略变为：<strong>让模型 $p_\theta(x_{t-1}  \mid  x_t)$ 在训练中去模仿和逼近“教师” $q(x_{t-1}  \mid  x_t, x_0)$</strong>。我们向模型输入 $x_t$，并要求它的输出尽可能地与根据 $x_0$ 和 $x_t$ 计算出的理想结果 $x_{t-1}$ 相匹配。</p>
+
+<p>这一策略引出了整个模型最关键的<strong>核心假设</strong>：如果一个足够强大的模型 $p_\theta$，在仅仅看到噪声图像 $x_t$ 的情况下，却能够持续地预测出那个需要“答案” $x_0$ 才能精确计算出的理想结果 $q$，那么这个模型必然已经通过学习海量数据，深刻内化了图像数据整体的内在结构和统计规律。</p>
+
+<p>换言之，通过在训练中成功地模仿无数个具体的、带条件的“教师”步骤（$p_\theta \approx q$），模型 $p_\theta$ 最终学会了那个我们真正追求的、普适的、无条件的逆向规律，从而成为了真实分布 $p$ 的一个优秀近似（$p_\theta \approx p$）。这个看似合理的假设，在其背后背后也有坚实的<strong>变分推断（Variational Inference）</strong>理论作为数学支撑，它证明了这种训练方式正是最大化数据似然的正确途径。</p>
+
+<p>同时，基于早期研究（如 Sohl-Dickstein et al., 2015）中“当噪声步长 $\beta_t$ 足够小时，逆向过程本身也趋向于高斯分布”的理论，我们将模型 $p_\theta$ 也设计为高斯分布，使其与“教师” $q$ 的形式保持一致，让这个模仿任务变得更加合理和高效。</p>
+
+<h3 id="22-如何近似">2.2 如何近似</h3>
+
+<p>既然我们已经知道目标分布是高斯分布，我们就可以让我们的神经网络也输出一个高斯分布的参数（均值和方差）：</p>
+
+\[p_\theta(x_{t-1}  \mid  x_t) = \mathcal{N}(x_{t-1}; \mu_\theta(x_t, t), \Sigma_\theta(x_t, t))\]
+
+<ul>
+  <li><strong>方差 $\Sigma_\theta(x_t, t)$</strong>: 论文发现，将方差固定为一个常数（比如 $\tilde{\beta}_t$ 或 $\beta_t$）也能取得很好的效果，这样可以简化训练，让模型专注于学习均值。因此，通常我们不让网络去学习方差。</li>
+  <li><strong>均值 $\mu_\theta(x_t, t)$</strong>: 这是整个逆向过程的核心，神经网络的任务就是预测这个均值。</li>
+</ul>
+
+<p><strong>为什么可以直接命令 $p_\theta$ 是一个高斯分布？</strong></p>
+
+<p>首先，实践上的直接原因是：</p>
+
+<p>我们要让 $p_\theta$ 尽可能的接近 $q(x_{t-1}  \mid  x_t, x_0)$ ，而后者是一个高斯分布，因此最为有效的方式就是假设前者也是一个高斯分布。</p>
+
+<p>同时，理论上的根本保障是：</p>
+
+<p>我们的根本目标是用 $p_\theta$ 近似 $ p(x_{t-1} \mid x_t) $，而后者基于早期研究<sup>*</sup>可以证明“当噪声步长 $\beta_t$ 足够小时，逆向过程 $p$ 本身也趋向于高斯分布”，因此，我们将模型 $p_\theta$ 也设计为高斯分布，自然就是合理和高效的。</p>
+
+<blockquote>
+  <p>*注：Sohl-Dickstein et al., 2015 的论文： Deep Unsupervised Learning using Nonequilibrium Thermodynamics证明了：在前向扩散过程中，如果每一步添加的噪声是高斯分布，并且噪声的方差足够小，那么逆向扩散过程的转移概率在数学上可以被证明也是一个高斯分布。该论文将非平衡热力学中的概念（如吉布斯-玻尔兹曼分布）引入到机器学习中，将数据分布的生成过程类比为从一个简单分布（如纯高斯噪声）通过一个逆向热力学过程逐渐恢复为数据分布。</p>
+</blockquote>
+
+<!-- 直接对 $p(x_{t-1}  \mid  x_t)$ 这个分布进行建模是非常困难的，，因为它是一个依赖于整个复杂数据集的、未知的分布。
+
+论文的巧妙之处在于，它首先严格证明了后验分布 $q(x_{t-1}  \mid  x_t, x_0)$ 是一个高斯分布，从而提供了一个可计算的训练目标。然后，基于‘当每一步添加的噪声 $\beta_t$ 足够小时，逆向过程的转移概率也趋向于高斯分布’这一理论依据（出自Sohl-Dickstein et al., 2015 的论文： Deep Unsupervised Learning using Nonequilibrium Thermodynamics），论文做出了一个关键的建模选择：使用一个同样是高斯分布的神经网络 $ p_\theta(x_{t-1} \mid x_t) $ 来学习和近似这个逆向过程。
+
+这里引入了一个新的概念：逆向分布后验分布，也就是在知道 $x_0$ 时（即知道原始图像），真实的后验分布 $q(x_{t-1}  \mid  x_t, x_0)$ ，可以证明它是一个高斯分布，并且其均值和方差可以被精确计算（数学证明见附录）：
+
+$$
+q(x_{t-1}  \mid  x_t, x_0) = \mathcal{N}(x_{t-1}; \tilde{\mu}_t(x_t, x_0), \tilde{\beta}_t \mathbf{I})
+$$ -->
+
+<!-- 其中：
+
+* **均值 $\tilde{\mu}_t(x_t, x_0)$** 的表达式为：
+    $$
+    \tilde{\mu}_t(x_t, x_0) = \frac{\sqrt{\bar{\alpha}_{t-1}}\beta_t}{1 - \bar{\alpha}_t}x_0 + \frac{\sqrt{\alpha_t}(1 - \bar{\alpha}_{t-1})}{1 - \bar{\alpha}_t}x_t
+    $$
+* **方差 $\tilde{\beta}_t$** 的表达式为：
+    $$
+    \tilde{\beta}_t = \frac{1 - \bar{\alpha}_{t-1}}{1 - \bar{\alpha}_t}\beta_t
+    $$
+
+这里的 $\alpha_t = 1 - \beta_t$ 并且 $\bar{\alpha}\_t = \prod_{i=1}^t \alpha_i$。
+
+这个公式非常重要，它告诉我们，如果我们知道了原始图像 $x_0$，就能精确地知道如何从 $x_t$ “去噪”到 $x_{t-1}$。
+
+这时你也许会疑惑，为什么又引入了后验分布？虽然 -->
+
+<!-- ### 3. 用神经网络近似后验分布
+
+终于来到了神经网络的部分。虽然我们知道了逆向过程的高斯分布的均值方差表达式，但是在实际生成过程中，我们并不知道 $x_0$，也就是说，我们还是无法直接确定这个高斯分布。但是好消息是，后验分布是一个高斯分布，因此，我们就可以用一个神经网络 $p_\theta$ 来近似这个真实的后验分布 $q(x_{t-1}  \mid  x_t, x_0)$，而神经网络的学习过程，需要用到 $ x_t $ 和 $ x_0 $。
+
+既然我们已经知道目标分布是高斯分布，我们就可以让我们的神经网络也输出一个高斯分布的参数（均值和方差）：
+
+$$
+p_\theta(x_{t-1}  \mid  x_t) = \mathcal{N}(x_{t-1}; \mu_\theta(x_t, t), \Sigma_\theta(x_t, t))
+$$
+
+* **方差 $\Sigma_\theta(x_t, t)$**: 论文发现，将方差固定为一个常数（比如 $\tilde{\beta}_t$ 或 $\beta_t$）也能取得很好的效果，这样可以简化训练，让模型专注于学习均值。因此，通常我们不让网络去学习方差。
+* **均值 $\mu_\theta(x_t, t)$**: 这是整个逆向过程的核心，神经网络的任务就是预测这个均值。 -->
+
+<h2 id="3-关键的参数化技巧-reparameterization-trick">3. 关键的参数化技巧 (Reparameterization Trick)</h2>
+
+<p>直接让神经网络预测 $\mu_\theta(x_t, t)$ 当然是可行的，但论文发现了一种更有效的方式。</p>
+
+<p>我们回顾一下前向过程的一个重要性质：任意时刻的 $x_t$ 都可以由 $x_0$ 和一个噪声 $\epsilon$ 直接表示：</p>
+
+\[x_t = \sqrt{\bar{\alpha}_t}x_0 + \sqrt{1 - \bar{\alpha}_t}\epsilon, \quad \text{其中 } \epsilon \sim \mathcal{N}(0, \mathbf{I})\]
+
+<p>从中可以反解出 $x_0$:</p>
+
+\[x_0 = \frac{1}{\sqrt{\bar{\alpha}_t}}(x_t - \sqrt{1 - \bar{\alpha}_t}\epsilon)\]
+
+<p>现在，我们将这个 $x_0$ 的表达式代入到我们之前推导出的真实后验均值 $\tilde{\mu}_t(x_t, x_0)$ 的公式里，经过一番代数化简，可以得到：</p>
+
+\[\tilde{\mu}_t = \frac{1}{\sqrt{\alpha_t}} \left( x_t - \frac{\beta_t}{\sqrt{1 - \bar{\alpha}_t}} \epsilon_t \right)\]
+
+<p>这个公式揭示了一个惊人的事实：预测逆向过程的均值 $\tilde{\mu}_t$，本质上等价于预测在 $x_t$ 中所包含的噪声 $\epsilon_t$。</p>
+
+<p>基于这个发现，作者没有让神经网络直接预测均值 $\mu_\theta(x_t, t)$，而是让它预测噪声 $\epsilon_\theta(x_t, t)$。然后，通过上面的公式，用预测出的噪声来计算出均值：</p>
+
+\[\mu_\theta(x_t, t) = \frac{1}{\sqrt{\alpha_t}} \left( x_t - \frac{\beta_t}{\sqrt{1 - \bar{\alpha}_t}} \epsilon_\theta(x_t, t) \right)\]
+
+<p>这样做的好处是：</p>
+<ol>
+  <li><strong>目标更明确</strong>: 让网络去预测一个添加到图像中的、与原图结构无关的噪声，比直接预测一个结构复杂的“去噪后的图像均值”要更容易学习。</li>
+  <li><strong>训练目标简化</strong>: 训练的目标变成了让神经网络预测的噪声 $\epsilon_\theta(x_t, t)$ 和前向过程中实际添加的噪声 $\epsilon$ 尽可能接近。这导出了一个非常简洁的损失函数：</li>
+  <li>
+\[L_{\text{simple}}(\theta) = \mathbb{E}_{t, x_0, \epsilon} \left[  \mid  \mid  \epsilon - \epsilon_\theta(\sqrt{\bar{\alpha}_t}x_0 + \sqrt{1 - \bar{\alpha}_t}\epsilon, t)  \mid  \mid ^2 \right]\]
+
+    <p>这个损失函数直观地表示：随机选取一个时间步 $t$，一张原始图片 $x_0$，一个随机噪声 $\epsilon$，构造出噪声图片 $x_t$，然后让模型 $\epsilon_\theta$ 去预测这个 $x_t$ 中包含的噪声 $\epsilon$ 是什么。</p>
+  </li>
+</ol>
+
+<h2 id="总结">总结</h2>
+
+<p>DDPM论文中关于逆向过程的核心思想可以归纳为以下几点：</p>
+<ul>
+  <li><strong>目标</strong>：从纯粹的高斯噪声 $x_t$ 出发，通过 $T$ 步迭代，逐步去噪，最终生成图像 $x_0$。</li>
+  <li><strong>理论基础</strong>：证明了逆向的每一步 $p(x_{t-1} \mid x_t)$ 也可以被近似为一个高斯分布。</li>
+  <li><strong>神经网络的角色</strong>：使用一个神经网络（通常是U-Net）来参数化这个高斯分布，主要是为了预测其均值 $\mu_\theta(x_t, t)$。</li>
+  <li><strong>核心技巧</strong>：通过数学上的重新参数化，将预测均值的任务巧妙地转化为了预测噪声 $\epsilon_\theta(x_t, t)$ 的任务。</li>
+  <li><strong>简化训练</strong>：这种转化使得模型的训练目标变得非常清晰和稳定，即让预测的噪声和真实的噪声之间的均方误差最小。</li>
+</ul>
+
+<p>最终，在训练完成后，我们就可以从一个随机噪声 $x_t$ 开始，利用训练好的噪声预测网络 $\epsilon_\theta$，反复应用下面的采样公式，一步步地生成图像：</p>
+
+\[x_{t-1} = \frac{1}{\sqrt{\alpha_t}} \left( x_t - \frac{\beta_t}{\sqrt{1 - \bar{\alpha}_t}} \epsilon_\theta(x_t, t) \right) + \sigma_t z\]
+
+<p>其中 $z \sim \mathcal{N}(0, \mathbf{I})$ 是一个随机噪声，$\sigma_t$ 是方差项。这个过程不断迭代，直到我们得到最终的生成结果 $x_0$。</p>
+
+<hr />
+
+<h2 id="附录后验分布的详细数学推导">附录：后验分布的详细数学推导</h2>
+
+<p>这个推导的核心目的是为了证明：在给定 $x_0$ 的条件下，从 $x_t$ 回到 $x_{t-1}$ 的逆向过程是一个高斯分布，并且我们可以精确地求出这个高斯分布的均值和方差。</p>
+
+<p>整个推导过程主要依赖于<strong>贝叶斯定理</strong>以及<strong>高斯分布</strong>的性质。</p>
+
+<h3 id="预备知识定义和公式">预备知识：定义和公式</h3>
+
+<p>在开始推导前，我们先回顾一下需要用到的定义和公式：</p>
+
+<ul>
+  <li><strong>基本定义</strong>:
+    <ul>
+      <li>$\alpha_t = 1 - \beta_t$</li>
+      <li>$\bar{\alpha}_t = \prod_{i=1}^t \alpha_i$</li>
+    </ul>
+  </li>
+  <li><strong>前向过程的三个关键分布</strong> (均为高斯分布):
+    <ul>
+      <li>单步加噪过程 $q(x_t  \mid  x_{t-1})$:
+  \(q(x_t  \mid  x_{t-1}) = \mathcal{N}(x_t; \sqrt{\alpha_t} x_{t-1}, \beta_t \mathbf{I})\)</li>
+      <li>从 $x_0$ 一步到 $x_t$ 的过程 $q(x_t  \mid  x_0)$:
+  \(q(x_t  \mid  x_0) = \mathcal{N}(x_t; \sqrt{\bar{\alpha}_t} x_0, (1 - \bar{\alpha}_t) \mathbf{I})\)</li>
+      <li>从 $x_0$ 一步到 $x_{t-1}$ 的过程 $q(x_{t-1}  \mid  x_0)$:
+  \(q(x_{t-1}  \mid  x_0) = \mathcal{N}(x_{t-1}; \sqrt{\bar{\alpha}_{t-1}} x_0, (1 - \bar{\alpha}_{t-1}) \mathbf{I})\)</li>
+    </ul>
+  </li>
+</ul>
+
+<h3 id="推导目标">推导目标</h3>
+
+<p>我们的目标是求解后验概率分布 $q(x_{t-1}  \mid  x_t, x_0)$。</p>
+
+<h3 id="推导步骤">推导步骤</h3>
+
+<h4 id="第一步应用贝叶斯定理">第一步：应用贝叶斯定理</h4>
+
+<p>根据贝叶斯定理，我们可以将目标后验概率展开：</p>
+
+\[q(x_{t-1}  \mid  x_t, x_0) = \frac{p(x_t  \mid  x_{t-1}, x_0) \cdot p(x_{t-1}  \mid  x_0)}{p(x_t  \mid  x_0)}\]
+
+<p>由于前向过程是一个马尔可夫链，在已知 $x_{t-1}$ 的情况下，$x_t$ 的分布与 $x_0$ 无关，即 $p(x_t  \mid  x_{t-1}, x_0) = q(x_t  \mid  x_{t-1})$。因此，上式可以写为：</p>
+
+\[q(x_{t-1}  \mid  x_t, x_0) = q(x_t  \mid  x_{t-1}) \frac{q(x_{t-1}  \mid  x_0)}{q(x_t  \mid  x_0)}\]
+
+<h4 id="第二步代入高斯分布的概率密度函数">第二步：代入高斯分布的概率密度函数</h4>
+
+<p>高斯分布 $\mathcal{N}(x; \mu, \sigma^2\mathbf{I})$ 的概率密度函数正比于 $\exp\left(-\frac{1}{2\sigma^2}  \mid  \mid x-\mu \mid  \mid ^2\right)$。我们可以忽略归一化常数，因为在高斯分布中只关心指数项中的形式，就可以通过配方法来确定均值和方差。</p>
+
+<p>我们将预备知识中的三个高斯分布的概率密度函数代入上式：</p>
+<ul>
+  <li>$q(x_t  \mid  x_{t-1}) \propto \exp\left(-\frac{1}{2\beta_t}  \mid  \mid x_t - \sqrt{\alpha_t} x_{t-1} \mid  \mid ^2\right)$</li>
+  <li>$q(x_{t-1}  \mid  x_0) \propto \exp\left(-\frac{1}{2(1 - \bar{\alpha}_{t-1})}  \mid  \mid x_{t-1} - \sqrt{\bar{\alpha}_{t-1}} x_0 \mid  \mid ^2\right)$</li>
+  <li>$q(x_t  \mid  x_0) \propto \exp\left(-\frac{1}{2(1 - \bar{\alpha}_t)}  \mid  \mid x_t - \sqrt{\bar{\alpha}_t} x_0 \mid  \mid ^2\right)$</li>
+</ul>
+
+<p>代入后，我们的目标 $q(x_{t-1}  \mid  x_t, x_0)$ 的概率密度正比于：</p>
+
+\[\exp\left(-\frac{ \mid  \mid x_t - \sqrt{\alpha_t} x_{t-1} \mid  \mid ^2}{2\beta_t}\right) \cdot \exp\left(-\frac{ \mid  \mid x_{t-1} - \sqrt{\bar{\alpha}_{t-1}} x_0 \mid  \mid ^2}{2(1 - \bar{\alpha}_{t-1})}\right) \cdot \frac{1}{\exp\left(-\frac{ \mid  \mid x_t - \sqrt{\bar{\alpha}_t} x_0 \mid  \mid ^2}{2(1 - \bar{\alpha}_t)}\right)}\]
+
+<p>将所有项合并到一个 $\exp$ 中：</p>
+
+\[\propto \exp\left( -\frac{1}{2} \left[ \frac{ \mid  \mid x_t - \sqrt{\alpha_t} x_{t-1} \mid  \mid ^2}{\beta_t} + \frac{ \mid  \mid x_{t-1} - \sqrt{\bar{\alpha}_{t-1}} x_0 \mid  \mid ^2}{1 - \bar{\alpha}_{t-1}} - \frac{ \mid  \mid x_t - \sqrt{\bar{\alpha}_t} x_0 \mid  \mid ^2}{1 - \bar{\alpha}_t} \right] \right)\]
+
+<h4 id="第三步展开指数项并合并同类项">第三步：展开指数项并合并同类项</h4>
+
+<p>现在，我们只关注指数内部的表达式，并将其展开。我们只保留与 $x_{t-1}$ 相关的项。</p>
+<ul>
+  <li>从 $\frac{(x_t - \sqrt{\alpha_t} x_{t-1})^2}{\beta_t}$ 中提取：
+  $\frac{\alpha_t}{\beta_t} x_{t-1}^2 - \frac{2\sqrt{\alpha_t}}{\beta_t}x_t x_{t-1}$</li>
+  <li>从 $\frac{(x_{t-1} - \sqrt{\bar{\alpha}_{t-1}} x_0)^2}{1 - \bar{\alpha}_{t-1}}$ 中提取：
+  $\frac{1}{1 - \bar{\alpha}_{t-1}}x_{t-1}^2 - \frac{2\sqrt{\bar{\alpha}_{t-1}}}{1 - \bar{\alpha}_{t-1}}x_0 x_{t-1}$</li>
+</ul>
+
+<p>我们将上面两式中与 $x_{t-1}$ 相关的项提取出来：</p>
+<ul>
+  <li>
+    <p><strong>$x_{t-1}^2$ 的系数</strong>:</p>
+
+\[\left( \frac{\alpha_t}{\beta_t} + \frac{1}{1 - \bar{\alpha}_{t-1}} \right) x_{t-1}^2\]
+  </li>
+  <li>
+    <p><strong>$x_{t-1}$ 的系数</strong>:</p>
+
+\[-2 \left( \frac{\sqrt{\alpha_t}}{\beta_t} x_t + \frac{\sqrt{\bar{\alpha}_{t-1}}}{1 - \bar{\alpha}_{t-1}} x_0 \right) x_{t-1}\]
+  </li>
+</ul>
+
+<p>其他项（不含 $x_{t-1}$ 的）可以被归入一个与 $x_{t-1}$ 无关的常数项 $C(x_t, x_0)$。</p>
+
+<h4 id="第四步通过配方法求解均值和方差">第四步：通过配方法求解均值和方差</h4>
+
+<p>我们知道，一个高斯分布 $\mathcal{N}(\mu,\sigma^2)$ 的概率密度函数正比于 $\exp(-\frac{(x-\mu)^2}{2\sigma^2}) = \exp(-\frac{1}{2\sigma^2}(x^2 - 2\mu x + \mu^2))$。
+对比这个形式和我们上面推导出的形式，我们可以得到：</p>
+
+<ul>
+  <li>
+    <p><strong>求解方差 $\tilde{\beta}_t$</strong>:</p>
+
+    <p>$x_{t-1}^2$ 的系数对应于 $\frac{1}{\sigma^2}$。</p>
+
+\[\frac{1}{\tilde{\beta}_t} = \frac{\alpha_t}{\beta_t} + \frac{1}{1 - \bar{\alpha}_{t-1}}\]
+
+    <p>进行通分：</p>
+
+\[\frac{\alpha_t(1-\bar{\alpha}_{t-1}) + \beta_t}{\beta_t(1 - \bar{\alpha}_{t-1})} = \frac{1-\beta_t - \bar{\alpha}_t + \beta_t \bar{\alpha}_{t-1} + \beta_t}{\beta_t(1 - \bar{\alpha}_{t-1})} = \frac{1 - \bar{\alpha}_t}{\beta_t(1 - \bar{\alpha}_{t-1})}\]
+
+    <p>（这里用到了 $\alpha_t = 1-\beta_t$ 和 $\bar{\alpha}_t = \alpha_t \bar{\alpha}_{t-1}$）
+  所以，方差 $\tilde{\beta}_t = \frac{\beta_t(1 - \bar{\alpha}_{t-1})}{1 - \bar{\alpha}_t} = \frac{1 - \bar{\alpha}_{t-1}}{1 - \bar{\alpha}_t}\beta_t$。
+  <strong>这就得到了论文中方差的表达式。</strong></p>
+  </li>
+  <li>
+    <p><strong>求解均值 $\tilde{\mu}_t(x_t, x_0)$</strong>:</p>
+
+    <p>$x_{t-1}$ 的系数对应于 $\frac{2\mu}{\sigma^2}$。</p>
+
+\[\frac{2\tilde{\mu}_t}{\tilde{\beta}_t} = 2 \left( \frac{\sqrt{\alpha_t}}{\beta_t} x_t + \frac{\sqrt{\bar{\alpha}_{t-1}}}{1 - \bar{\alpha}_{t-1}} x_0 \right)\]
+
+\[\tilde{\mu}_t = \tilde{\beta}_t \left( \frac{\sqrt{\alpha_t}}{\beta_t} x_t + \frac{\sqrt{\bar{\alpha}_{t-1}}}{1 - \bar{\alpha}_{t-1}} x_0 \right)\]
+
+    <p>将刚刚求得的 $\tilde{\beta}_t$ 代入并展开：</p>
+
+\[\tilde{\mu}_t = \frac{1 - \bar{\alpha}_{t-1}}{1 - \bar{\alpha}_t}\beta_t \left( \frac{\sqrt{\alpha_t}}{\beta_t} x_t + \frac{\sqrt{\bar{\alpha}_{t-1}}}{1 - \bar{\alpha}_{t-1}} x_0 \right)\]
+
+\[\tilde{\mu}_t = \frac{\sqrt{\alpha_t}(1 - \bar{\alpha}_{t-1})}{1 - \bar{\alpha}_t} x_t + \frac{\beta_t \sqrt{\bar{\alpha}_{t-1}}}{1 - \bar{\alpha}_t} x_0\]
+
+    <p><strong>这就得到了论文中均值的表达式。</strong></p>
+  </li>
+</ul>
+
+<blockquote>
+  <p><em>注：原文中均值公式的变量顺序略有不同。这里的推导出的是通常呈现的形式。</em></p>
+</blockquote>
+
+<h3 id="结论">结论</h3>
+
+<p>通过以上四个步骤，我们成功推导出了后验分布 $q(x_{t-1}  \mid  x_t, x_0)$ 是一个高斯分布，其形式为：</p>
+
+\[q(x_{t-1}  \mid  x_t, x_0) = \mathcal{N}(x_{t-1}; \tilde{\mu}_t(x_t, x_0), \tilde{\beta}_t \mathbf{I})\]
+
+<p>其中：</p>
+<ul>
+  <li><strong>均值</strong>: $\tilde{\mu}_t(x_t, x_0) = \frac{\sqrt{\alpha_t}(1 - \bar{\alpha}_{t-1})}{1 - \bar{\alpha}_t} x_t + \frac{\sqrt{\bar{\alpha}_{t-1}}\beta_t}{1 - \bar{\alpha}_t} x_0$</li>
+  <li><strong>方差</strong>: $\tilde{\beta}_t = \frac{1 - \bar{\alpha}_{t-1}}{1 - \bar{\alpha}_t}\beta_t$</li>
+</ul>
+
+<p>这个结果是 DDPM 模型能够工作的数学基石。它告诉我们，虽然直接建模逆向过程 $p(x_{t-1} \mid x_t)$ 很困难，但我们可以通过一个神经网络去逼近它的目标明确、形式已知（高斯分布）的后验分布，从而将复杂的生成问题转化为了一个监督学习问题（预测噪声）。</p>]]></content><author><name>Chocoleo</name></author><category term="AI" /><category term="Diffusion Models" /><category term="ddpm" /><category term="generative models" /><category term="machine learning" /><category term="deep learning" /><summary type="html"><![CDATA[引言 逆向过程是 DDPM 模型能够生成新数据的关键所在。如果说前向过程（Forward Process）是不断对图片添加噪声，将其“破坏”成纯粹高斯噪声的过程，那么逆向过程就是一个“去噪”和“修复”的过程，它从一个完全随机的噪声图像出发，一步步地去除噪声，最终还原出一张清晰、真实的图片。]]></summary></entry><entry><title type="html">DDPM 正向过程的通项公式</title><link href="http://localhost:4000/ai/diffusion%20models/2025/09/12/DDPM%E5%89%8D%E5%90%91%E8%BF%87%E7%A8%8B.html" rel="alternate" type="text/html" title="DDPM 正向过程的通项公式" /><published>2025-09-12T21:08:47+08:00</published><updated>2025-09-12T21:08:47+08:00</updated><id>http://localhost:4000/ai/diffusion%20models/2025/09/12/DDPM%E5%89%8D%E5%90%91%E8%BF%87%E7%A8%8B</id><content type="html" xml:base="http://localhost:4000/ai/diffusion%20models/2025/09/12/DDPM%E5%89%8D%E5%90%91%E8%BF%87%E7%A8%8B.html"><![CDATA[<p>Denoising Diffusion Probabilistic Models (DDPM) 的核心是两个过程：正向加噪和逆向采样过程，本文我们将聚焦正向加噪过程：</p>
+
+<p>论文Background章节的的第二个公式，描述了一个<strong>逐步演化</strong>的过程：</p>
+
+\[q(\mathbf{x}_t|\mathbf{x}_{t-1}) := \mathcal{N}(\mathbf{x}_t; \sqrt{1 - \beta_t}\mathbf{x}_{t-1}, \beta_t\mathbf{I})\]
+
+<p>它又可以写成：</p>
+
+\[x_t = \sqrt{1 - \beta_t} x_{t-1} + \sqrt{\beta_t} \epsilon_{t-1}\]
+
+<p>它告诉我们，任意时刻 \(t\) 的图像 \(x_t\)，是由其前一时刻的图像 \(x_{t-1}\) 加上少量噪声得到的。</p>
+
+<p>这是一个典型的马尔可夫过程。</p>
+
+<p>而在正向过程的伪代码中，论文则给出了一个<strong>“一步到位”</strong>的计算方法：</p>
+
+\[x_t = \sqrt{\bar{\alpha}_t} x_0 + \sqrt{1 - \bar{\alpha}_t} \epsilon\]
+
+<p>这个公式表明，我们可以直接从最原始的清晰图像 \(x_0\)，一步跳到任意时刻 \(t\) 的加噪状态 \(x_t\)。</p>
+
+<p>这也许会让你感到疑惑，<strong>既然扩散过程的理论基础是逐步演化的，为什么我们可以从 $ x_0 $ 直接推出 \(x_t\) ？上面两个公式之间究竟是什么关系？</strong></p>
+
+<p>本文将围绕这个核心问题，深入剖析后一个公式是如何从第一个公式推导而来的，它背后深刻的物理意义，并给出详尽的数学证明。</p>
+
+<h2 id="1-为何需要一步到位">1. 为何需要“一步到位”？</h2>
+<p>虽然理论上，扩散模型的正向过程（也就是加噪的过程，即训练阶段）是一步一步来的，但是在实际训练时，我们实际上是取某一个时间步的图像进行训练。这个区别关键在于区分理论基础与实践需求。</p>
+
+<ul>
+  <li>
+    <p><strong>分步定义是理论基石</strong>：正向过程的本质是一个<strong>马尔可夫链</strong>，即当前状态 $ x_t $ 只依赖于前一个状态 $ x_{t-1} $。这个分步定义 $ q(x_t \mid x_{t-1}) $ 是整个扩散模型的理论核心。它保证了过程的平滑性和数学上的可逆性，这为后续的反向去噪过程（即学习预测 $ p(x_{t-1} \mid x_t) $）提供了坚实的理论依据。</p>
+  </li>
+  <li>
+    <p><strong>直接计算是实践需求</strong>：在训练神经网络时，我们的目标是让模型学会从任意一张加噪图像 $ x_t $ 中恢复信息（例如，预测所添加的噪声 \(\epsilon\)）。为了高效训练，我们需要快速生成海量的训练数据。如果每次生成 $ x_t $ 都需要从 $ x_0 $ 开始迭代 $ t $ 次，当 $ t $ 很大时，这个过程将极其耗时，使得模型训练变得不切实际。</p>
+  </li>
+</ul>
+
+<p>因此，这个“一步到位”的公式正是连接理论与实践的桥梁。它是一个从分步定义中推导出的解析解，让我们能够在常数时间内完成采样，极大地提高了训练效率。</p>
+
+<h2 id="2-公式推导">2. 公式推导</h2>
+
+<p>“一步到位”公式的推导利用了高斯分布的一个性质：<strong>两个独立高斯分布的和仍然是一个高斯分布</strong>。具体来说，如果 \(Z_1 \sim \mathcal{N}(\mu_1, \sigma_1^2\mathbf{I})\) 和 \(Z_2 \sim \mathcal{N}(\mu_2, \sigma_2^2\mathbf{I})\) 是独立的，那么它们的和 \(Z_1 + Z_2 \sim \mathcal{N}(\mu_1+\mu_2, (\sigma_1^2 + \sigma_2^2)\mathbf{I})\)。</p>
+
+<p>从单步加噪的公式出发，我们定义 \(\alpha_t = 1 - \beta_t\)，单步过程写作：</p>
+
+\[x_t = \sqrt{\alpha_t} x_{t-1} + \sqrt{1 - \alpha_t} \epsilon_{t-1}, \quad \text{其中 } \epsilon_{t-1} \sim \mathcal{N}(0, \mathbf{I})\]
+
+<p>将 \(x_{t-1}\) 的表达式 \(x_{t-1} = \sqrt{\alpha_{t-1}} x_{t-2} + \sqrt{1 - \alpha_{t-1}} \epsilon_{t-2}\) 代入上式：</p>
+
+\[\begin{aligned}
+x_t &amp;= \sqrt{\alpha_t} (\sqrt{\alpha_{t-1}} x_{t-2} + \sqrt{1 - \alpha_{t-1}} \epsilon_{t-2}) + \sqrt{1 - \alpha_t} \epsilon_{t-1} \\
+&amp;= \sqrt{\alpha_t \alpha_{t-1}} x_{t-2} + \underbrace{\sqrt{\alpha_t(1 - \alpha_{t-1})} \epsilon_{t-2} + \sqrt{1 - \alpha_t} \epsilon_{t-1}}_{\text{两个独立高斯噪声的和}}
+\end{aligned}\]
+
+<p>根据高斯分布的可加性，后面两个噪声项可以合并成一个单一的高斯噪声。不断地重复上述过程直到回溯到 \(x_0\)，最终就能得到我们的目标公式。</p>
+
+<h2 id="3-意义">3. 意义</h2>
+<p>这个公式揭示了正向过程的本质：</p>
+
+<ol>
+  <li>
+    <p>任意时刻的加噪图像 \(x_t\) 都可以看作是<strong>原始图像 \(x_0\)（信号）</strong>和<strong>标准高斯噪声 \(\epsilon\)（噪声）</strong>的一个线性组合。</p>
+  </li>
+  <li>系数 \(\bar{\alpha}_t = \prod_{i=1}^{t} (1 - \beta_i)\) 是一个随 \(t\) 增大而单调递减的数值。它就像一个“进度条”，控制着信号与噪声的平衡：
+    <ul>
+      <li><strong>信号强度</strong>由 \(\sqrt{\bar{\alpha}_t}\) 控制。当 \(t\) 很小时，\(\bar{\alpha}_t\) 接近1，\(x_t\) 主要由 \(x_0\) 决定。</li>
+      <li><strong>噪声强度</strong>由 \(\sqrt{1 - \bar{\alpha}_t}\) 控制。当 \(t\) 增大时，\(\bar{\alpha}_t\) 趋向0，\(x_t\) 中的噪声成分越来越重。</li>
+      <li>当 \(t=T\) 时，\(\bar{\alpha}_T \approx 0\)，此时 \(x_T \approx \epsilon\)。这意味着无论原始图像是什么，最终都会变成一个纯粹的标准高斯噪声。</li>
+    </ul>
+  </li>
+  <li><strong>训练的基石</strong>：这个公式使得模型的训练目标变得非常明确。给定 \(x_0\) 和 \(t\)，我们可以通过这个公式生成 \(x_t\)。然后，将 \(x_t\) 和 \(t\) 输入神经网络，让网络预测出我们采样时所用的噪声 \(\epsilon\)。</li>
+</ol>
+
+<h2 id="4-严谨的数学证明">4. 严谨的数学证明</h2>
+
+<p>下面我们使用数学归纳法给出完整的数学证明。</p>
+
+<p><strong>定义</strong>:</p>
+<ul>
+  <li>单步加噪过程: \(x_t = \sqrt{\alpha_t} x_{t-1} + \sqrt{1 - \alpha_t} \epsilon_{t-1}\), 其中 \(\alpha_t = 1 - \beta_t\) 且 \(\epsilon_{t-1} \sim \mathcal{N}(0, \mathbf{I})\)。</li>
+  <li>\(\bar{\alpha}_t = \prod_{i=1}^{t} \alpha_i\)。</li>
+</ul>
+
+<p><strong>目标</strong>:
+证明 \(x_t = \sqrt{\bar{\alpha}_t} x_0 + \sqrt{1 - \bar{\alpha}_t} \epsilon\), 其中 \(\epsilon \sim \mathcal{N}(0, \mathbf{I})\)。</p>
+
+<p><strong>证明过程 (使用数学归纳法)</strong>:</p>
+
+<ol>
+  <li>
+    <p><strong>基础步骤 (当 \(t=1\))</strong>:
+\(x_1 = \sqrt{\alpha_1} x_0 + \sqrt{1 - \alpha_1} \epsilon_0\)
+因为 \(\bar{\alpha}_1 = \alpha_1\)，所以公式显然成立。</p>
+  </li>
+  <li>
+    <p><strong>归纳步骤</strong>:
+假设公式对 \(t-1\) 成立，即:</p>
+
+\[x_{t-1} = \sqrt{\bar{\alpha}_{t-1}} x_0 + \sqrt{1 - \bar{\alpha}_{t-1}} \epsilon'\]
+
+    <p>其中 \(\epsilon' \sim \mathcal{N}(0, \mathbf{I})\)。
+现在我们来推导 \(t\) 时刻的表达式:</p>
+
+\[x_t = \sqrt{\alpha_t} x_{t-1} + \sqrt{1 - \alpha_t} \epsilon_{t-1}\]
+
+    <p>将 \(x_{t-1}\) 的假设代入:</p>
+
+\[x_t = \sqrt{\alpha_t} (\sqrt{\bar{\alpha}_{t-1}} x_0 + \sqrt{1 - \bar{\alpha}_{t-1}} \epsilon') + \sqrt{1 - \alpha_t} \epsilon_{t-1}\]
+
+    <p>展开后得到:</p>
+
+\[x_t = \sqrt{\alpha_t \bar{\alpha}_{t-1}} x_0 + \sqrt{\alpha_t(1 - \bar{\alpha}_{t-1})} \epsilon' + \sqrt{1 - \alpha_t} \epsilon_{t-1}\]
+
+    <p>根据定义 \(\bar{\alpha}_t = \alpha_t \bar{\alpha}_{t-1}\)。我们再次合并两个独立的噪声项。合并后噪声项的总方差为:</p>
+
+\[\begin{aligned}
+\text{Var}_{\text{total}} &amp;= \left(\sqrt{\alpha_t(1 - \bar{\alpha}_{t-1})}\right)^2 \mathbf{I} + \left(\sqrt{1 - \alpha_t}\right)^2 \mathbf{I} \\
+&amp;= (\alpha_t(1 - \bar{\alpha}_{t-1}) + 1 - \alpha_t) \mathbf{I} \\
+&amp;= (\alpha_t - \alpha_t\bar{\alpha}_{t-1} + 1 - \alpha_t) \mathbf{I} \\
+&amp;= (1 - \alpha_t\bar{\alpha}_{t-1}) \mathbf{I} \\
+&amp;= (1 - \bar{\alpha}_t) \mathbf{I}
+\end{aligned}\]
+
+    <p>因此，两个噪声项之和等价于一个单一的高斯噪声 \(\sqrt{1 - \bar{\alpha}_t} \epsilon''\)，其中 \(\epsilon'' \sim \mathcal{N}(0, \mathbf{I})\)。最终我们得到:</p>
+
+\[x_t = \sqrt{\bar{\alpha}_t} x_0 + \sqrt{1 - \bar{\alpha}_t} \epsilon''\]
+
+    <p>公式在 \(t\) 时刻也成立。<strong>证明完毕。</strong></p>
+  </li>
+</ol>
+
+<h2 id="总结">总结</h2>
+
+<p>DDPM正向过程中的“一步到位”公式，是对分步马尔可夫过程进行递归展开后得到的一个解析解。它是实现高效训练的关键，更揭示了扩散过程的本质——一个由确定性信号和随机性噪声构成的、进程可控的过程。</p>]]></content><author><name>Chocoleo</name></author><category term="AI" /><category term="Diffusion Models" /><summary type="html"><![CDATA[Denoising Diffusion Probabilistic Models (DDPM) 的核心是两个过程：正向加噪和逆向采样过程，本文我们将聚焦正向加噪过程：]]></summary></entry><entry><title type="html">DDPM 变分下界的完整证明</title><link href="http://localhost:4000/ai/diffusion%20models/2025/09/04/DDPM%E5%8F%98%E5%88%86%E4%B8%8B%E7%95%8C%E6%8E%A8%E5%AF%BC.html" rel="alternate" type="text/html" title="DDPM 变分下界的完整证明" /><published>2025-09-04T00:00:00+08:00</published><updated>2025-09-04T00:00:00+08:00</updated><id>http://localhost:4000/ai/diffusion%20models/2025/09/04/DDPM%E5%8F%98%E5%88%86%E4%B8%8B%E7%95%8C%E6%8E%A8%E5%AF%BC</id><content type="html" xml:base="http://localhost:4000/ai/diffusion%20models/2025/09/04/DDPM%E5%8F%98%E5%88%86%E4%B8%8B%E7%95%8C%E6%8E%A8%E5%AF%BC.html"><![CDATA[<h3 id="引言">引言</h3>
 <p>相信每一位入门diffusion model的同学都遇到过这个公式：</p>
 
 \[\mathbb{E}[-\log p_\theta(\mathbf{x}_0)] \le
@@ -11,11 +450,11 @@
 
 <p>现在，让我们开始吧！</p>
 
-<h1 id="理解与证明ddpm中的变分下界vlb公式第一部分">理解与证明DDPM中的变分下界(VLB)公式：第一部分</h1>
+<h2 id="理解与证明ddpm中的变分下界vlb公式第一部分">理解与证明DDPM中的变分下界(VLB)公式：第一部分</h2>
 
-<h2 id="11-什么是对数似然">1.1 什么是对数似然？</h2>
+<h3 id="11-什么是对数似然">1.1 什么是对数似然？</h3>
 
-<h3 id="核心目标最大似然估计-maximum-likelihood-estimation">核心目标：最大似然估计 (Maximum Likelihood Estimation)</h3>
+<h5 id="核心目标最大似然估计-maximum-likelihood-estimation">核心目标：最大似然估计 (Maximum Likelihood Estimation)</h5>
 
 <p>首先一定要理解的一件事是：生成模型的目标，是在用模型生成的分布去逼近真实世界的分布，而不是去逼近真实世界中的一个点，因此我们要最小化的是两个分布之间的距离，而这就需要用到<strong>最大似然估计</strong>。</p>
 
@@ -63,7 +502,7 @@
 
 <p>因此，在DDPM的公式中，我们的目标 $\mathbb{E}[-\log p_\theta(\mathbf{x}_0)]$ 就是<strong>最小化负对数似然的期望</strong>，这与最大化对数似然是完全一样的目标，也是我们训练所有深度生成模型的基石。</p>
 
-<h2 id="12-什么是变分下界-variational-lower-bound-vlb">1.2 什么是变分下界 (Variational Lower Bound, VLB)？</h2>
+<h3 id="12-什么是变分下界-variational-lower-bound-vlb">1.2 什么是变分下界 (Variational Lower Bound, VLB)？</h3>
 
 <p>现在我们知道了目标是最小化 $-\log p_\theta(\mathbf{x}_0)$。但问题是，对于像DDPM这样复杂的深度生成模型，$p_\theta(\mathbf{x}_0)$ 这个概率值通常是<strong>难以直接计算 (intractable)</strong> 的。因为它涉及到对所有可能的潜在变量（在DDPM中就是 $\mathbf{x}_{1:T}$）进行积分或求和，计算量巨大到无法实现。</p>
 
@@ -87,7 +526,7 @@
 
 <p>因此，VLB为我们优化一个难解的概率模型提供了一座桥梁，一个切实可行的优化目标。</p>
 
-<h1 id="这个公式的意义第二部分">这个公式的意义：第二部分</h1>
+<h2 id="这个公式的意义第二部分">这个公式的意义：第二部分</h2>
 
 <p>理解了对数似然和变分下界之后，我们现在的目标就是最小化公式中右边的这部分：</p>
 
@@ -123,14 +562,14 @@
   <li><strong>代理的具体内容</strong>：这个下界 $L$ 由一个先验项和一系列代表逐步去噪过程的项构成，而这些项的核心是让模型学习到的反向去噪过程 $p_\theta$ 去匹配固定的前向加噪过程 $q$。</li>
 </ul>
 
-<h1 id="对公式进行严谨的数学证明第三部分">对公式进行严谨的数学证明：第三部分</h1>
+<h2 id="对公式进行严谨的数学证明第三部分">对公式进行严谨的数学证明：第三部分</h2>
 
 <p>我们要证明的第一个不等式是：
 \(\mathbb{E}[-\log p_\theta(\mathbf{x}0)] \le \mathbb{E}q \left[ -\log \frac{p\theta(\mathbf{x}{0:T})}{q(\mathbf{x}_{1:T}\mid\mathbf{x}_0)} \right]\)</p>
 
 <p>这个证明分为两个主要部分：首先是单个数据点的变分下界推导，然后是泛化到整个数据集，并解释期望的合并。</p>
-<h2 id="31-证明不等式从詹森不等式到vlb">3.1 证明不等式：从詹森不等式到VLB</h2>
-<h3 id="311-从单个数据点的似然到其下界">3.1.1 从单个数据点的似然到其下界</h3>
+<h3 id="31-证明不等式从詹森不等式到vlb">3.1 证明不等式：从詹森不等式到VLB</h3>
+<h4 id="311-从单个数据点的似然到其下界">3.1.1 从单个数据点的似然到其下界</h4>
 
 <p>我们首先从单个数据点 $\mathbf{x}0$ 的对数似然 $\log p\theta(\mathbf{x}_0)$ 开始，证明它存在一个下界。</p>
 
@@ -159,7 +598,7 @@
 
 <p>至此，我们完成了单个数据点变分下界的证明。</p>
 
-<h3 id="312-对不等式两边都取期望">3.1.2 对不等式两边都取期望</h3>
+<h4 id="312-对不等式两边都取期望">3.1.2 对不等式两边都取期望</h4>
 
 <p>在机器学习中，我们的目标是让模型拟合整个真实数据分布 $p_{data}(\mathbf{x}0)$，而不是某个特定的数据点。这在数学上等价于最大化整个数据集的平均对数似然，也就是对 $\log p\theta(\mathbf{x}_0)$ 取关于数据分布的期望。</p>
 
@@ -171,13 +610,13 @@
 <p>不等式右边两个期望合并以后即得到：
 \(\mathbb{E}[-\log p_\theta(\mathbf{x}0)] \le \mathbb{E}q \left[ -\log \frac{p\theta(\mathbf{x}{0:T})}{q(\mathbf{x}_{1:T}\mid\mathbf{x}_0)} \right]\)</p>
 
-<h3 id="313-为什么嵌套的期望可以合并">3.1.3 为什么嵌套的期望可以合并？</h3>
+<h4 id="313-为什么嵌套的期望可以合并">3.1.3 为什么嵌套的期望可以合并？</h4>
 
 <p>在概率论中，如果我们要对一个随机变量的函数 $f(X,Y)$ 求期望，并且 $X$ 和 $Y$ 都是随机变量，我们可以按照<strong>全期望定律（Law of Total Expectation）</strong>来计算。</p>
 
 <hr />
 
-<h4 id="全期望定律">全期望定律</h4>
+<h5 id="全期望定律">全期望定律</h5>
 
 <p>全期望定律的公式是：</p>
 
@@ -187,7 +626,7 @@
 
 <hr />
 
-<h4 id="证明合并的合理性">证明合并的合理性</h4>
+<h5 id="证明合并的合理性">证明合并的合理性</h5>
 
 <p>现在，我们将这个定律应用到公式上。</p>
 
@@ -242,7 +681,7 @@
 
 <p>在DDPM的语境下，这个合并非常方便。它让我们把训练目标从一个复杂的嵌套期望简化成一个单层期望。这个单层期望的采样过程也更直观：我们先从真实数据中采样一个 $\mathbf{x}_0$，然后通过前向过程 $q$ 逐步生成 $\mathbf{x}_1,\dots,\mathbf{x}_T$，得到一条完整的轨迹 $\mathbf{x}_{0:T}$，最后计算这条轨迹上的损失函数。</p>
 
-<h2 id="32-证明等式利用链式法则分解损失">3.2 证明等式：利用链式法则分解损失</h2>
+<h3 id="32-证明等式利用链式法则分解损失">3.2 证明等式：利用链式法则分解损失</h3>
 
 <p>这个等式<strong>把一个关于联合概率（整条路径）的单一目标，转换成了一个关于条件概率（单个步骤）的求和目标</strong>。</p>
 
@@ -271,7 +710,7 @@
   </li>
 </ol>
 
-<h1 id="全文总结">全文总结</h1>
+<h2 id="全文总结">全文总结</h2>
 <p><strong>至此，我们将一个无法完成的宏大任务，分解为一系列可以完成的简单子任务：</strong></p>
 
 <ol>
@@ -289,5 +728,5 @@
 损失函数 $L$ 被分解成了 T 个子损失之和（忽略常数项）。在训练时，我们可以随机采样一个时间步 $t$ 和一个数据点 $\mathbf{x}_0$，然后只计算和优化对应于该时间步 $t$ 的那个损失项。这使得训练过程非常高效和稳定。</p>
   </li>
   <li><strong>进一步简化</strong>：
- 在论文中，这个损失还可以被进一步简化为一个时间步中模型预测的噪声 $\varepsilon_\theta$ 与正向过程中增加的噪声 $\varepsilon$ 之间的损失。关于这部分内容，我们会放在<strong>简化损失</strong>这篇文章中详细说明。</li>
-</ol>]]></content><author><name>你的名字</name></author><category term="ML" /><category term="Diffusion" /><summary type="html"><![CDATA[引言 相信每一位入门diffusion model的同学都遇到过这个公式：]]></summary></entry></feed>
+ 在论文中，这个损失还可以被进一步简化为一个时间步中模型预测的噪声 $\epsilon_\theta$ 与正向过程中增加的噪声 $\epsilon$ 之间的损失。关于这部分内容，我们会放在<strong>简化损失</strong>这篇文章中详细说明。</li>
+</ol>]]></content><author><name>Chocoleo</name></author><category term="AI" /><category term="Diffusion Models" /><summary type="html"><![CDATA[引言 相信每一位入门diffusion model的同学都遇到过这个公式：]]></summary></entry></feed>

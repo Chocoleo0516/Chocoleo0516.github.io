@@ -1,7 +1,7 @@
 # _config.yml
 
-title: 我的第一个博客 # 博客标题
-author: 你的名字 # 你的名字
+title: Chocoleo的博客 # 博客标题
+author: Chocoleo # 你的名字
 description: >- # 博客描述，会显示在搜索引擎结果中
   这里是我的个人博客，记录学习和思考的过程。
 url: "" # 如果你之后部署到网上，这里填写你的网址，例如 "https://username.github.io"
