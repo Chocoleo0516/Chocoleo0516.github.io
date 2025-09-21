@@ -18,5 +18,8 @@ header_pages:
   - about.md
 
 markdown: kramdown
+kramdown:
+  input: GFM
+
 
 pygments: true
